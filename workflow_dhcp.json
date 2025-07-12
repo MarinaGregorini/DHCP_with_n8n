@@ -1,0 +1,637 @@
+{
+  "name": "DHCP Automation Workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://[INTERNAL_IP]:5000/api/auth",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "{\n  \"Content-Type\": \"application/json\"\n}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"username\":\"{{ $json.Username }}\",\n  \"password\":\"{{ $json.Password }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1580,
+        -260
+      ],
+      "id": "1ba90124-b530-453d-84df-7ae5df4f3392",
+      "name": "LDAP Auth",
+      "retryOnFail": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "MAC",
+              "placeholder": "00:00:00:00:00:00",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 1,
+      "position": [
+        -1200,
+        -420
+      ],
+      "id": "e3dd2f34-96a0-4cc3-af60-a1bb0c6fbd7a",
+      "name": "MAC Form",
+      "webhookId": "586dad45-15a2-4f58-95f3-853231233d89"
+    },
+    {
+      "parameters": {
+        "url": "https://[EXTERNAL_API]/api/dhcp/scopes/get?token=[API_TOKEN]&name=[NETWORK_NAME]",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -600,
+        -260
+      ],
+      "id": "85eef9ae-cf49-4921-bd5a-b0b474b870a0",
+      "name": "Get DHCP data"
+    },
+    {
+      "parameters": {
+        "jsCode": "const startIP = 170;\nconst endIP = 254;\nconst baseNetwork = \"10.101.\";\n\nconst reservedIPs = $input.all()[0]?.json?.response?.reservedLeases?.map(lease => lease.address) || [];\n\nfunction getNextAvailableIP() {\n  for (let i = startIP; i <= 254; i++) {\n    const testIP = `${baseNetwork}86.${i}`;\n    if (!reservedIPs.includes(testIP)) return testIP;\n  }\n\n  for (let i = 1; i <= endIP; i++) {\n    const testIP = `${baseNetwork}87.${i}`;\n    if (!reservedIPs.includes(testIP)) return testIP;\n  }\n\n  return null;\n}\n\nconst freeIP = getNextAvailableIP();\n\nif (!freeIP) {\n  return {json: {success: false, mac: $('MAC Form').first().json.MAC}}\n}\n\nreturn {\n  json: {\n    success: true,\n    freeIP,\n    mac: $('MAC Form').first().json.MAC,\n    hostname: $('Login Form').first().json.username\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -440,
+        -260
+      ],
+      "id": "ac6deffe-7f34-404f-8a1b-251792b28c76",
+      "name": "Choose free IP"
+    },
+    {
+      "parameters": {
+        "url": "=https://[EXTERNAL_API]/api/dhcp/scopes/addReservedLease?token=[API_TOKEN]&name=[NETWORK_NAME]&hardwareAddress={{ $json.mac }}&ipAddress={{ $json.freeIP }}&hostName={{ $('Login Form').item.json.Username }}&comments={{ $('LDAP Auth').item.json.user.email }}",
+        "sendHeaders": true,
+        "specifyHeaders": "json",
+        "jsonHeaders": "{\n  \"Content-Type\": \"application/json\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -40,
+        -420
+      ],
+      "id": "efd79d41-c5be-4473-abe7-126c8f9236b2",
+      "name": "Insert DHCP entry"
+    },
+    {
+      "parameters": {
+        "formTitle": "Login",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Username",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Password",
+              "fieldType": "password",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {
+          "path": "dhcp-entry",
+          "ignoreBots": true
+        }
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.2,
+      "position": [
+        -1740,
+        -260
+      ],
+      "id": "bf06acdc-62ac-4d84-97f3-d34b98ac8a30",
+      "name": "Login Form",
+      "webhookId": "aa65240a-282d-4221-9b15-49e03e915c7a"
+    },
+    {
+      "parameters": {
+        "jsCode": "const mac = $input.first().json.MAC;\nconst isValid = /^([0-9A-Fa-f]{2}[:]){5}([0-9A-Fa-f]{2})$/.test(mac || '');\n\nif (!isValid) {\n  return { \n    success: false\n  };\n}\n\nreturn { \n  success: true,\n  mac: mac\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1040,
+        -420
+      ],
+      "id": "eaecdb08-91b1-4215-ac51-2ce31e247903",
+      "name": "Validate MAC"
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "completionTitle": "=IP atribuído:   {{ $('Choose free IP').item.json.freeIP }}",
+        "completionMessage": "O seu pedido foi concluído com sucesso.",
+        "options": {
+          "formTitle": "SUCESSO"
+        }
+      },
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 1,
+      "position": [
+        680,
+        -560
+      ],
+      "id": "219637e2-d1d1-4686-a058-054811bf80b1",
+      "name": "Success",
+      "webhookId": "7934b621-96a6-4d26-a354-94e3776e766f"
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "respondWith": "redirect",
+        "redirectUrl": "https://[N8N_INSTANCE]/form/dhcp-entry"
+      },
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 1,
+      "position": [
+        -1200,
+        -100
+      ],
+      "id": "c0a02fe6-ef1a-4813-93e8-95ddc70f5b72",
+      "name": "Restart",
+      "webhookId": "7934b621-96a6-4d26-a354-94e3776e766f"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "8d7df2b8-02ce-42c5-8a55-ae7ed4aa9e19",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "success",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1420,
+        -260
+      ],
+      "id": "d520e75a-156e-4462-bf18-ceec30f81ad3",
+      "name": "If Auth",
+      "alwaysOutputData": false
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "98c28e3e-e264-4d8e-998e-5808c7c51f4d",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "ok",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        120,
+        -420
+      ],
+      "id": "eb2e3c8d-1b57-4012-becf-96bfd250f132",
+      "name": "If entry success"
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "completionTitle": "ERRO",
+        "completionMessage": "Algo de errado. Tente novamente. https://[N8N_INSTANCE]/form/dhcp-entry",
+        "limitWaitTime": true,
+        "resumeAmount": 0.3,
+        "resumeUnit": "minutes",
+        "options": {
+          "formTitle": "ERRO"
+        }
+      },
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 1,
+      "position": [
+        340,
+        -300
+      ],
+      "id": "cd906917-333c-426b-80d5-69778a058745",
+      "name": "Fail",
+      "webhookId": "7934b621-96a6-4d26-a354-94e3776e766f"
+    },
+    {
+      "parameters": {
+        "jsCode": "const username = $('Login Form').first().json.Username || \"Não especificado\";\nconst email = $('LDAP Auth').first().json.user.email || \"Não especificado\";\nconst mac = $('Choose free IP').first().json.mac || \"Não especificado\";\nconst ip = $('Choose free IP').first().json.freeIP || \"Não especificado\";\n\nconst sendmailCommand = `\n(\n  echo \"From: noreply@example.com\";\n  echo \"To: admin@example.com\";\n  echo \"Subject: Novo registo DHCP\";\n  echo \"Content-Type: text/plain; charset=UTF-8\";\n  echo \"\";\n  echo \"VLAN: [VLAN_ID] - [NETWORK_NAME].\";\n  echo \"Username: ${username}\";\n  echo \"Email: ${email}\";\n  echo \"MAC: ${mac}\";\n  echo \"IP: ${ip}\";\n) | /usr/sbin/sendmail -t\n`;\n\nreturn [\n  {\n    json: {\n      command: sendmailCommand,\n      username,\n      email,\n      mac,\n      ip\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        340,
+        -560
+      ],
+      "id": "325791f5-4f5a-4446-b23c-8e67a23d2b06",
+      "name": "Set success email body"
+    },
+    {
+      "parameters": {
+        "authentication": "privateKey",
+        "command": "={{$node[\"Set success email body\"].json[\"command\"]}}"
+      },
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        520,
+        -560
+      ],
+      "id": "130b55a4-7b1c-41fe-a75a-39379b94ffe0",
+      "name": "Send success email",
+      "credentials": {
+        "sshPrivateKey": {
+          "id": "[CREDENTIAL_ID]",
+          "name": "SSH Password account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const username = $('Login Form').first().json.Username || \"Não especificado\";\nconst email = $('LDAP Auth').first().json.user.email || \"Não especificado\";\nconst mac = $('Choose free IP').first().json.mac || \"Não especificado\";\n\nconst sendmailCommand = `\n(\n  echo \"From: noreply@example.com\";\n  echo \"To: support@example.com\";\n  echo \"Subject: Erro ao criar novo registo DHCP\";\n  echo \"Content-Type: text/plain; charset=UTF-8\";\n  echo \"\";\n  echo \"VLAN: [VLAN_ID] - [NETWORK_NAME].\";\n  echo \"Username: ${username}\";\n  echo \"Email: ${email}\";\n  echo \"MAC: ${mac}\";\n  echo \"Não foi possível encontrar um IP disponível.\";\n  echo \"User aguarda registo manual e a sua confirmação.\";\n) | /usr/sbin/sendmail -t\n`;\n\nreturn [\n  {\n    json: {\n      command: sendmailCommand,\n      username,\n      email,\n      mac\n    }\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -40,
+        -80
+      ],
+      "id": "3327df1d-06f7-4ffc-8c54-673694db1d69",
+      "name": "Set suport email body"
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "completionTitle": "ERRO",
+        "completionMessage": "No momento não foi possível atribuir um IP.\nUm pedido de suporte foi criado e entraremos em contacto consigo em breve.",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 1,
+      "position": [
+        280,
+        -80
+      ],
+      "id": "e768b68f-1635-444f-a137-981278d7b9a0",
+      "name": "Fail no IP",
+      "webhookId": "580eb93c-20f8-4970-8a98-96aa70e64b44"
+    },
+    {
+      "parameters": {
+        "authentication": "privateKey",
+        "command": "={{$node[\"Set suport email body\"].json[\"command\"]}}"
+      },
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        120,
+        -80
+      ],
+      "id": "39cb3708-ed4e-473b-9aec-7ec2614bf840",
+      "name": "Send support email",
+      "credentials": {
+        "sshPrivateKey": {
+          "id": "[CREDENTIAL_ID]",
+          "name": "SSH Password account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "541cbae8-07dd-440b-b6f7-9620f3d32819",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -880,
+        -420
+      ],
+      "id": "17144b11-bc18-46bc-8241-6f0d718a6fa5",
+      "name": "If valid MAC"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f780e988-1a82-450a-96ac-81c27cca5184",
+              "leftValue": false,
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -260,
+        -260
+      ],
+      "id": "780df3dd-9064-4296-b62c-4bd0973de802",
+      "name": "If free IP"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "LDAP Auth": {
+      "main": [
+        [
+          {
+            "node": "If Auth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MAC Form": {
+      "main": [
+        [
+          {
+            "node": "Validate MAC",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get DHCP data": {
+      "main": [
+        [
+          {
+            "node": "Choose free IP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Choose free IP": {
+      "main": [
+        [
+          {
+            "node": "If free IP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert DHCP entry": {
+      "main": [
+        [
+          {
+            "node": "If entry success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Login Form": {
+      "main": [
+        [
+          {
+            "node": "LDAP Auth",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate MAC": {
+      "main": [
+        [
+          {
+            "node": "If valid MAC",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restart": {
+      "main": [
+        []
+      ]
+    },
+    "If Auth": {
+      "main": [
+        [
+          {
+            "node": "MAC Form",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Restart",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If entry success": {
+      "main": [
+        [
+          {
+            "node": "Set success email body",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fail": {
+      "main": [
+        []
+      ]
+    },
+    "Set success email body": {
+      "main": [
+        [
+          {
+            "node": "Send success email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send success email": {
+      "main": [
+        [
+          {
+            "node": "Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set suport email body": {
+      "main": [
+        [
+          {
+            "node": "Send support email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send support email": {
+      "main": [
+        [
+          {
+            "node": "Fail no IP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If valid MAC": {
+      "main": [
+        [
+          {
+            "node": "Get DHCP data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "MAC Form",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If free IP": {
+      "main": [
+        [
+          {
+            "node": "Insert DHCP entry",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set suport email body",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataSuccessExecution": "none",
+    "saveExecutionProgress": false,
+    "saveManualExecutions": false,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "f11fc679-0a90-4cb1-824b-aa3616dcf628",
+  "meta": {
+    "templateId": "1750",
+    "templateCredsSetupCompleted": true,
+    "instanceId": "b288dc2d3e2700893a4abad7c3d96e5bfe7d8ef218ef9d97b823f7a405974d55"
+  },
+  "id": "Pdz5UDtXmKPovvqt",
+  "tags": []
+}
